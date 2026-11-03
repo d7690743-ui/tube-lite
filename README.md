@@ -16,6 +16,22 @@ WebView con triple filtro:
 Además: pantalla completa para video, botón atrás navega el historial,
 sin dependencias externas.
 
+## Segundo plano, PiP y controles
+
+- **Fondo ON**: inicia un foreground service (`mediaPlayback`) con
+  notificación permanente: el audio sigue con la app cerrada o el
+  móvil bloqueado, y Android casi nunca mata el proceso.
+- **Notificación multimedia**: play/pausa desde la barra, la pantalla
+  de bloqueo y botones Bluetooth.
+- **PiP**: botón flotante o automático al salir con video en pantalla
+  completa (requiere Android 8+).
+
+## Blocklist actualizable
+
+La lista de bloqueo vive en `blocklist.json` (raíz del repo): la app
+la descarga al iniciar y guarda caché. Si YouTube cambia algo, basta
+editar ese JSON y subirlo: sin compilar APK nuevo.
+
 ## Limitaciones honestas
 
 - YouTube cambia su web seguido y combate bloqueadores: algún selector

@@ -8,6 +8,31 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <LinearLayout
+        android:id="@+id/controls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="8dp">
+
+        <Button
+            android:id="@+id/bg_toggle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Fondo: OFF"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/pip"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="PiP"
+            android:textSize="12sp" />
+
+    </LinearLayout>
+
     <FrameLayout
         android:id="@+id/fullscreen"
         android:layout_width="match_parent"

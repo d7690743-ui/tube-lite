@@ -1,0 +1,12 @@
+{
+  "hosts": [
+    "doubleclick.net",
+    "googlesyndication.com",
+    "google-analytics.com",
+    "adservice.google.com",
+    "ads.youtube.com"
+  ],
+  "hideCss": ".ytd-display-ad-renderer,#masthead-ad,ytd-ad-slot-renderer,.ytp-ad-overlay-container",
+  "skipButtons": ".ytp-skip-ad-button,.ytp-ad-skip-button,.ytp-ad-skip-button-modern",
+  "adMarkers": ".ad-showing,.ytp-ad-playing"
+}
