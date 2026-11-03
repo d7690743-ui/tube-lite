@@ -184,15 +184,7 @@ class PlaybackService : Service() {
 
     /** Play/pausa directo sobre el WebView, en el hilo UI. Funciona sin actividad. */
     private fun sendToggle() {
-        mainHandler.post {
-            try {
-                (application as TubeApp).activeWebView?.evaluateJavascript(
-                    "(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){window.__wasPlaying=true;v.play();}else{window.__wasPlaying=false;v.pause();}})();",
-                    null
-                )
-            } catch (_: Exception) {
-            }
-        }
+        evalJs("(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){window.__wasPlaying=true;v.play();}else{window.__wasPlaying=false;v.pause();}})();")
     }
 
     /**
@@ -202,13 +194,15 @@ class PlaybackService : Service() {
     private val watchdog = object : Runnable {
         override fun run() {
             try {
-                (application as TubeApp).activeWebView?.evaluateJavascript(
+                val app = application as TubeApp
+                JsRun.run(
+                    app, "watchdog",
                     "(function(){try{var v=document.querySelector('video');" +
                         "if(v&&v.paused&&window.__wasPlaying&&!document.querySelector('.ad-showing,.ytp-ad-playing')){v.play();}" +
-                        "}catch(e){}})();",
-                    null
+                        "}catch(e){try{if(window.TubeBridge)TubeBridge.onError('watchdog',String((e&&e.message)||e));}catch(_){}}})();"
                 )
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                (application as TubeApp).addDiag("watchdog", "ex=${e.message ?: "?"}")
             }
             mainHandler.postDelayed(this, 2000)
         }
@@ -301,12 +295,7 @@ class PlaybackService : Service() {
     }
 
     private fun evalJs(js: String) {
-        mainHandler.post {
-            try {
-                (application as TubeApp).activeWebView?.evaluateJavascript(js, null)
-            } catch (_: Exception) {
-            }
-        }
+        JsRun.run(application as TubeApp, "svc-js", js)
     }
 
     private fun refreshNotification() {

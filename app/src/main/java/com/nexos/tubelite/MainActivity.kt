@@ -89,6 +89,9 @@ class MainActivity : Activity() {
         updateBgButton()
         bgButton.setOnClickListener { toggleBg() }
         findViewById<Button>(R.id.pip).setOnClickListener { enterPip() }
+        findViewById<Button>(R.id.diag).setOnClickListener {
+            Toast.makeText(this, "Diag: " + (application as TubeApp).diagSummary(), Toast.LENGTH_LONG).show()
+        }
     }
 
     /**
@@ -328,8 +331,9 @@ class MainActivity : Activity() {
                     blocklistFile().writeText(text, Charsets.UTF_8)
                 } catch (_: Exception) {
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 // Sin red: se sigue con la lista integrada o la caché.
+                (application as TubeApp).addDiag("blocklist", "fetch-fail: ${e.message ?: "?"}")
             }
         }.start()
     }
@@ -393,7 +397,7 @@ class MainActivity : Activity() {
               var t = (document.title || '').substring(0, 80);
               var key = (playing ? '1' : '0') + '|' + t;
               if (key !== lastRep) { lastRep = key; TubeBridge.onState(playing, t); }
-            } catch (e) {}
+            } catch (e) { try { if (window.TubeBridge) TubeBridge.onError('report', String((e && e.message) || e)); } catch (_) {} }
           }
           function skip() {
             try {
@@ -407,7 +411,7 @@ class MainActivity : Activity() {
                 v.muted = false;
                 if (v.paused && window.__wasPlaying) { try { v.play(); } catch (e) {} }
               }
-            } catch (e) {}
+            } catch (e) { try { if (window.TubeBridge) TubeBridge.onError('skip', String((e && e.message) || e)); } catch (_) {} }
             report();
           }
           setInterval(skip, 500);
