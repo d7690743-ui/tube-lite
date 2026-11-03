@@ -19,6 +19,9 @@ class TubeApp : Application() {
     @Volatile var lastTitle = ""
 
     @Volatile var wwNullLogged = false
+
+    /** true mientras PlaybackService vive (muere con el proceso). */
+    @Volatile var serviceAlive = false
     private val diagLock = Any()
     private val diagBuf: ArrayDeque<String> = ArrayDeque()
 

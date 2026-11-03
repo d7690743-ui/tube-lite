@@ -45,6 +45,7 @@ class MainActivity : Activity() {
 
     private var bgOn = false
     private var pendingBg = false
+    private var pausedByLifecycle = false
     private val notifyPermCode = 3001
 
     private val defaultBlocklist = Blocklist(
@@ -187,8 +188,54 @@ class MainActivity : Activity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // En PiP el video debe seguir: no tocar nada.
+        if (isInPictureInPictureMode) return
+        // Con Fondo ON el servicio manda: no tocar nada.
+        if (!bgOn && ::webView.isInitialized) {
+            try {
+                if ((application as TubeApp).lastPlaying) {
+                    pausedByLifecycle = true
+                    webView.evaluateJavascript("(function(){var v=document.querySelector('video');if(!v)return;window.__wasPlaying=false;v.pause();})();", null)
+                }
+                webView.onPause()
+            } catch (e: Exception) {
+                (application as TubeApp).addDiag("lifecycle", "onPause ex=${e.message ?: "?"}")
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Si el proceso murió y volvió, bgOn pudo quedar obsoleto: conciliar.
+        if (bgOn && !(application as TubeApp).serviceAlive) {
+            bgOn = false
+            prefs().edit().putBoolean("bg_on", false).apply()
+            updateBgButton()
+        }
+        if (::webView.isInitialized) {
+            (application as TubeApp).activeWebView = webView
+            if (!bgOn) {
+                try {
+                    webView.onResume()
+                } catch (e: Exception) {
+                    (application as TubeApp).addDiag("lifecycle", "onResume ex=${e.message ?: "?"}")
+                }
+                if (pausedByLifecycle) {
+                    pausedByLifecycle = false
+                    webView.evaluateJavascript("(function(){var v=document.querySelector('video');if(!v)return;window.__wasPlaying=true;v.play();})();", null)
+                }
+            }
+        }
+    }
+
     override fun onDestroy() {
         val app = application as TubeApp
+        if (!::webView.isInitialized) {
+            super.onDestroy()
+            return
+        }
         if (bgOn) {
             // Aparcar: el WebView (y el audio) sobrevive a la actividad.
             try {

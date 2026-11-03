@@ -94,6 +94,7 @@ class PlaybackService : Service() {
             registerReceiver(stateReceiver, filter)
         }
         requestFocus()
+        (application as TubeApp).serviceAlive = true
         startFg()
         mainHandler.postDelayed(watchdog, 2000)
     }
@@ -104,8 +105,12 @@ class PlaybackService : Service() {
                 abandonFocus()
                 try {
                     val app = application as TubeApp
-                    app.parkedWebView?.destroy()
-                    app.parkedWebView = null
+                    val parked = app.parkedWebView
+                    if (parked != null) {
+                        if (app.activeWebView === parked) app.activeWebView = null
+                        parked.destroy()
+                        app.parkedWebView = null
+                    }
                 } catch (_: Exception) {
                 }
                 releaseWakeLock()
@@ -130,7 +135,19 @@ class PlaybackService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Barrido de recientes: NO detener; re-afirmar foreground y notificación.
+        try {
+            startFg()
+            refreshNotification()
+        } catch (e: Exception) {
+            (application as TubeApp).addDiag("lifecycle", "onTaskRemoved ex=${e.message ?: "?"}")
+        }
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
+        (application as TubeApp).serviceAlive = false
         abandonFocus()
         try {
             mainHandler.removeCallbacks(watchdog)
