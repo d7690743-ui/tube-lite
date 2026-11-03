@@ -21,6 +21,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.widget.RemoteViews
 
 /**
  * Segundo plano forzado: foreground inmediato con tipo mediaPlayback,
@@ -331,7 +332,11 @@ class PlaybackService : Service() {
         return PendingIntent.getService(this, action.hashCode(), intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    @Suppress("DEPRECATION") // addAction(int,...): variante compatible con minSdk 24.
+    /**
+     * Notificación con layout propio (sin plantilla MediaStyle del sistema).
+     * MediaSession se conserva aparte: lockscreen y Bluetooth la necesitan
+     * por diseño de Android, pero la notificación visible es 100% nuestra.
+     */
     private fun buildNotification(): Notification {
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, channelId)
@@ -344,20 +349,21 @@ class PlaybackService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val toggleIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        val toggleText = if (playing) "Pausar" else "Reproducir"
+        val views = RemoteViews(packageName, R.layout.notification_player)
+        views.setTextViewText(R.id.notif_title, trackTitle.ifEmpty { "TubeLite en segundo plano" })
+        views.setTextViewText(R.id.notif_status, if (playing) "Reproduciendo" else "Pausado")
+        views.setImageViewResource(
+            R.id.notif_toggle,
+            if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        )
+        views.setOnClickPendingIntent(R.id.notif_toggle, actionIntent(ACTION_TOGGLE))
+        views.setOnClickPendingIntent(R.id.notif_stop, actionIntent(ACTION_STOP))
         builder.setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle(if (trackTitle.isEmpty()) "TubeLite en segundo plano" else trackTitle)
-            .setContentText(if (playing) "Reproduciendo" else "Pausado")
             .setContentIntent(openApp)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_TRANSPORT)
-            .addAction(toggleIcon, toggleText, actionIntent(ACTION_TOGGLE))
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Detener", actionIntent(ACTION_STOP))
-        val token = session?.sessionToken
-        if (token != null) {
-            builder.setStyle(Notification.MediaStyle().setMediaSession(token).setShowActionsInCompactView(0))
-        }
+            .setCustomContentView(views)
+            .setStyle(Notification.DecoratedCustomViewStyle())
         return builder.build()
     }
 
