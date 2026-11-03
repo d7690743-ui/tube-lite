@@ -5,6 +5,7 @@ import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -62,6 +63,13 @@ class MainActivity : Activity() {
     @Volatile private var blocklist = defaultBlocklist
     private val blocklistUrl = "https://raw.githubusercontent.com/d7690743-ui/tube-lite/main/blocklist.json"
     private val homeUrl = "https://m.youtube.com"
+
+    // Se inyecta en onPageStarted, antes de que YouTube ate sus listeners.
+    private val EARLY_JS =
+        "(function(){try{" +
+            "Object.defineProperty(document,'hidden',{value:false,configurable:true});" +
+            "Object.defineProperty(document,'visibilityState',{value:'visible',configurable:true});" +
+            "}catch(e){}})();"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -135,6 +143,12 @@ class MainActivity : Activity() {
                     )
                 }
                 return super.shouldInterceptRequest(view, request)
+            }
+
+            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                super.onPageStarted(view, url, favicon)
+                // Temprano: que YouTube no vea que la página se oculta.
+                view?.evaluateJavascript(EARLY_JS, null)
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -254,7 +268,7 @@ class MainActivity : Activity() {
         bgOn = true
         prefs().edit().putBoolean("bg_on", true).apply()
         updateBgButton()
-        Toast.makeText(this, "Segundo plano activado: el audio sigue con la app cerrada", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Fondo ON. Si tu marca lo corta al salir (Xiaomi/Oppo/Vivo), pon TubeLite sin restricciones de batería.", Toast.LENGTH_LONG).show()
     }
 
     private fun updateBgButton() {
@@ -352,6 +366,20 @@ class MainActivity : Activity() {
           var SKIP = '${b.skipButtons}';
           var MARK = '${b.adMarkers}';
           var lastRep = '';
+          if (window.__wasPlaying === undefined) window.__wasPlaying = true;
+          try {
+            // YouTube pausa al ocultar la página: decirle siempre visible.
+            Object.defineProperty(document, 'hidden', {value: false, configurable: true});
+            Object.defineProperty(document, 'visibilityState', {value: 'visible', configurable: true});
+            document.hasFocus = function() { return true; };
+            window.addEventListener('visibilitychange', function(e){ e.stopImmediatePropagation(); }, true);
+            document.addEventListener('visibilitychange', function(e){ e.stopImmediatePropagation(); }, true);
+          } catch (e) {}
+          // Pausa por tap del usuario (con click previo) se respeta; las demás se reanudan.
+          var clickT = 0;
+          document.addEventListener('click', function(){ clickT = Date.now(); }, true);
+          document.addEventListener('pause', function(){ try { if (Date.now() - clickT < 800) window.__wasPlaying = false; } catch (e) {} }, true);
+          document.addEventListener('play', function(){ try { window.__wasPlaying = true; } catch (e) {} }, true);
           try {
             var s = document.createElement('style');
             s.textContent = HIDE + '{display:none!important}';
@@ -377,6 +405,7 @@ class MainActivity : Activity() {
               else if (v && !ad) {
                 try { if (v.playbackRate !== 1) v.playbackRate = 1; } catch (e) {}
                 v.muted = false;
+                if (v.paused && window.__wasPlaying) { try { v.play(); } catch (e) {} }
               }
             } catch (e) {}
             report();

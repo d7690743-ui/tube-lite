@@ -24,6 +24,12 @@ sin dependencias externas.
   aplicación al morir la actividad (atrás minimiza en vez de cerrar) y
   al reabrir sigue donde iba; si el proceso muere, se restaura la
   última URL.
+- **Anti-pausa**: YouTube pausa al ocultar la página; la app le reporta
+  siempre visible, reanuda pausas no pedidas y un vigilante nativo cada
+  2 s hace lo mismo aunque la página esté dormida. La pausa que TÚ
+  pides (tap o notificación) sí se respeta.
+- Si tu marca (Xiaomi/Oppo/Vivo/Huawei) igual lo corta: Ajustes >
+  Batería > TubeLite > Sin restricciones.
 - **Notificación multimedia**: play/pausa desde la barra, la pantalla
   de bloqueo y botones Bluetooth, con el título real del video.
 - **Puente JS ↔ Java**: la página reporta play/pausa y título

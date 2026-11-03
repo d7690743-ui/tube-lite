@@ -77,6 +77,7 @@ class PlaybackService : Service() {
             registerReceiver(stateReceiver, filter)
         }
         startFg()
+        mainHandler.postDelayed(watchdog, 2000)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -110,6 +111,10 @@ class PlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        try {
+            mainHandler.removeCallbacks(watchdog)
+        } catch (_: Exception) {
+        }
         try {
             unregisterReceiver(stateReceiver)
         } catch (_: Exception) {
@@ -161,11 +166,30 @@ class PlaybackService : Service() {
         mainHandler.post {
             try {
                 (application as TubeApp).activeWebView?.evaluateJavascript(
-                    "(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){v.play();}else{v.pause();}})();",
+                    "(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){window.__wasPlaying=true;v.play();}else{window.__wasPlaying=false;v.pause();}})();",
                     null
                 )
             } catch (_: Exception) {
             }
+        }
+    }
+
+    /**
+     * Vigilante nativo: cada 2 s reanuda si YouTube pausó solo. Los timers
+     * del servicio no los frena el sistema como los de la página oculta.
+     */
+    private val watchdog = object : Runnable {
+        override fun run() {
+            try {
+                (application as TubeApp).activeWebView?.evaluateJavascript(
+                    "(function(){try{var v=document.querySelector('video');" +
+                        "if(v&&v.paused&&window.__wasPlaying&&!document.querySelector('.ad-showing,.ytp-ad-playing')){v.play();}" +
+                        "}catch(e){}})();",
+                    null
+                )
+            } catch (_: Exception) {
+            }
+            mainHandler.postDelayed(this, 2000)
         }
     }
 
