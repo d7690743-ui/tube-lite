@@ -2,15 +2,13 @@ package com.nexos.tubelite
 
 import android.app.Activity
 import android.app.PictureInPictureParams
-import android.content.BroadcastReceiver
-import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -36,6 +34,7 @@ private data class Blocklist(
 
 class MainActivity : Activity() {
 
+    private lateinit var webContainer: FrameLayout
     private lateinit var webView: WebView
     private lateinit var fullscreenBox: FrameLayout
     private lateinit var controlsRow: LinearLayout
@@ -62,17 +61,7 @@ class MainActivity : Activity() {
 
     @Volatile private var blocklist = defaultBlocklist
     private val blocklistUrl = "https://raw.githubusercontent.com/d7690743-ui/tube-lite/main/blocklist.json"
-
-    private val controlReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context, intent: Intent) {
-            if (intent.getStringExtra("cmd") == "toggle") {
-                webView.evaluateJavascript(
-                    "(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){v.play();}else{v.pause();}})();",
-                    null
-                )
-            }
-        }
-    }
+    private val homeUrl = "https://m.youtube.com"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -81,11 +70,46 @@ class MainActivity : Activity() {
         loadCachedBlocklist()
         refreshBlocklist()
 
-        webView = findViewById(R.id.web)
+        webContainer = findViewById(R.id.web_container)
         fullscreenBox = findViewById(R.id.fullscreen)
         controlsRow = findViewById(R.id.controls)
         bgButton = findViewById(R.id.bg_toggle)
 
+        obtainWebView(savedInstanceState)
+
+        bgOn = prefs().getBoolean("bg_on", false)
+        updateBgButton()
+        bgButton.setOnClickListener { toggleBg() }
+        findViewById<Button>(R.id.pip).setOnClickListener { enterPip() }
+    }
+
+    /**
+     * Reutiliza el WebView aparcado (audio intacto) o crea uno nuevo
+     * con la última URL. El WebView se crea con contexto de aplicación
+     * para poder sobrevivir a la actividad.
+     */
+    private fun obtainWebView(state: Bundle?) {
+        val app = application as TubeApp
+        val reused = app.parkedWebView
+        app.parkedWebView = null
+        webView = reused ?: WebView(applicationContext)
+        (webView.parent as? ViewGroup)?.removeView(webView)
+        webContainer.addView(
+            webView,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+        )
+        app.activeWebView = webView
+        configureWebView()
+        if (reused == null && state == null) {
+            val last = prefs().getString("last_url", null)
+            webView.loadUrl(if (!last.isNullOrEmpty()) last else homeUrl)
+        }
+    }
+
+    private fun configureWebView() {
         webView.settings.javaScriptEnabled = true
         webView.settings.domStorageEnabled = true
         webView.settings.mediaPlaybackRequiresUserGesture = false
@@ -111,6 +135,9 @@ class MainActivity : Activity() {
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
+                if (!url.isNullOrEmpty()) {
+                    prefs().edit().putString("last_url", url).apply()
+                }
                 view?.evaluateJavascript(skipJs(), null)
             }
         }
@@ -137,31 +164,31 @@ class MainActivity : Activity() {
                 customCallback = null
             }
         }
-
-        bgOn = prefs().getBoolean("bg_on", false)
-        updateBgButton()
-        bgButton.setOnClickListener { toggleBg() }
-        findViewById<Button>(R.id.pip).setOnClickListener { enterPip() }
-
-        val filter = IntentFilter(PlaybackService.ACTION_CONTROL)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(controlReceiver, filter, RECEIVER_NOT_EXPORTED)
-        } else {
-            @Suppress("DEPRECATION")
-            registerReceiver(controlReceiver, filter)
-        }
-
-        if (savedInstanceState == null) {
-            webView.loadUrl("https://m.youtube.com")
-        }
     }
 
     override fun onDestroy() {
-        try {
-            unregisterReceiver(controlReceiver)
-        } catch (_: Exception) {
+        val app = application as TubeApp
+        if (bgOn) {
+            // Aparcar: el WebView (y el audio) sobrevive a la actividad.
+            try {
+                (webView.parent as? ViewGroup)?.removeView(webView)
+                webView.webViewClient = WebViewClient()
+                webView.webChromeClient = WebChromeClient()
+                app.parkedWebView = webView
+                app.activeWebView = webView
+            } catch (_: Exception) {
+                try {
+                    webView.destroy()
+                } catch (_: Exception) {
+                }
+            }
+        } else {
+            try {
+                webView.destroy()
+            } catch (_: Exception) {
+            }
+            app.activeWebView = null
         }
-        webView.destroy()
         super.onDestroy()
     }
 
@@ -171,6 +198,9 @@ class MainActivity : Activity() {
             webView.webChromeClient?.onHideCustomView()
         } else if (webView.canGoBack()) {
             webView.goBack()
+        } else if (bgOn) {
+            // Con Fondo ON, atrás minimiza en vez de cerrar: el audio sigue.
+            moveTaskToBack(true)
         } else {
             super.onBackPressed()
         }

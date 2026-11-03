@@ -18,9 +18,12 @@ sin dependencias externas.
 
 ## Segundo plano, PiP y controles
 
-- **Fondo ON**: inicia un foreground service (`mediaPlayback`) con
-  notificación permanente: el audio sigue con la app cerrada o el
-  móvil bloqueado, y Android casi nunca mata el proceso.
+- **Fondo ON**: foreground inmediato tipo `mediaPlayback`, STICKY y
+  wake lock parcial: el audio sigue con la app cerrada, el móvil
+  bloqueado o la app barrida de recientes. El WebView se aparca en la
+  aplicación al morir la actividad (atrás minimiza en vez de cerrar) y
+  al reabrir sigue donde iba; si el proceso muere, se restaura la
+  última URL.
 - **Notificación multimedia**: play/pausa desde la barra, la pantalla
   de bloqueo y botones Bluetooth.
 - **PiP**: botón flotante o automático al salir con video en pantalla

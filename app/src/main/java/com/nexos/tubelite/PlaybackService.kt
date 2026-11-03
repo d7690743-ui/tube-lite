@@ -7,25 +7,39 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.os.PowerManager
 
 /**
- * Mantiene vivo el proceso para audio en segundo plano y expone
- * controles play/pausa en la notificación, bloqueo y Bluetooth.
- * Sin AndroidX: MediaSession y MediaStyle del framework.
+ * Segundo plano forzado: foreground inmediato con tipo mediaPlayback,
+ * STICKY (el sistema lo recrea si lo mata), wake lock parcial para que
+ * la CPU no se duerma con pantalla apagada, y control play/pausa directo
+ * sobre el WebView (vivo o aparcado). Sin AndroidX.
  */
 class PlaybackService : Service() {
 
     private var session: MediaSession? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private var playing = true
     private val channelId = "tubelite_playback"
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     override fun onCreate() {
         super.onCreate()
         createChannel()
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "TubeLite:audio").apply {
+            try {
+                acquire()
+            } catch (_: Exception) {
+            }
+        }
         session = MediaSession(this, "TubeLite").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
@@ -39,11 +53,19 @@ class PlaybackService : Service() {
             isActive = true
             updateState()
         }
+        startFg()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                try {
+                    val app = application as TubeApp
+                    app.parkedWebView?.destroy()
+                    app.parkedWebView = null
+                } catch (_: Exception) {
+                }
+                releaseWakeLock()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
                 return START_NOT_STICKY
@@ -53,11 +75,11 @@ class PlaybackService : Service() {
                 session?.updateState()
                 sendToggle()
                 refreshNotification()
-                return START_NOT_STICKY
+                return START_STICKY
             }
             else -> {
-                startForeground(NOTIFY_ID, buildNotification())
-                return START_NOT_STICKY
+                startFg()
+                return START_STICKY
             }
         }
     }
@@ -65,9 +87,27 @@ class PlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        releaseWakeLock()
         session?.release()
         session = null
         super.onDestroy()
+    }
+
+    private fun startFg() {
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIFY_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+        } else {
+            startForeground(NOTIFY_ID, buildNotification())
+        }
+    }
+
+    private fun releaseWakeLock() {
+        try {
+            val lock = wakeLock
+            if (lock != null && lock.isHeld) lock.release()
+        } catch (_: Exception) {
+        }
+        wakeLock = null
     }
 
     private fun MediaSession.updateState() {
@@ -80,10 +120,17 @@ class PlaybackService : Service() {
         )
     }
 
+    /** Play/pausa directo sobre el WebView, en el hilo UI. Funciona sin actividad. */
     private fun sendToggle() {
-        sendBroadcast(
-            Intent(ACTION_CONTROL).setPackage(packageName).putExtra("cmd", "toggle")
-        )
+        mainHandler.post {
+            try {
+                (application as TubeApp).activeWebView?.evaluateJavascript(
+                    "(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){v.play();}else{v.pause();}})();",
+                    null
+                )
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private fun refreshNotification() {
@@ -105,7 +152,8 @@ class PlaybackService : Service() {
             Notification.Builder(this)
         }
         val openApp = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
+            this, 0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val toggleIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
@@ -115,6 +163,7 @@ class PlaybackService : Service() {
             .setContentText("Audio activo. Usa Pausar o vuelve a la app.")
             .setContentIntent(openApp)
             .setOngoing(true)
+            .setCategory(Notification.CATEGORY_TRANSPORT)
             .addAction(toggleIcon, toggleText, actionIntent(ACTION_TOGGLE))
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Detener", actionIntent(ACTION_STOP))
         val token = session?.sessionToken
@@ -134,7 +183,6 @@ class PlaybackService : Service() {
     companion object {
         const val ACTION_TOGGLE = "com.nexos.tubelite.TOGGLE"
         const val ACTION_STOP = "com.nexos.tubelite.STOP"
-        const val ACTION_CONTROL = "com.nexos.tubelite.CONTROL"
         const val NOTIFY_ID = 3001
     }
 }
