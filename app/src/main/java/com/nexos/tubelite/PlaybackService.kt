@@ -475,11 +475,11 @@ class PlaybackService : Service() {
         val views = RemoteViews(packageName, R.layout.notification_player)
         views.setTextViewText(R.id.notif_title, trackTitle.ifEmpty { "TubeLite en segundo plano" })
         views.setTextViewText(R.id.notif_status, if (playing) "Reproduciendo" else "Pausado")
-        views.setImageViewResource(
-            R.id.notif_toggle,
-            if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
-        )
-        views.setOnClickPendingIntent(R.id.notif_toggle, actionIntent(ACTION_TOGGLE))
+        // Acciones discretas con ID propio: mismo administrador que MediaSession.
+        views.setOnClickPendingIntent(R.id.notif_play, actionIntent(ACTION_PLAY))
+        views.setOnClickPendingIntent(R.id.notif_pause, actionIntent(ACTION_PAUSE))
+        views.setOnClickPendingIntent(R.id.notif_next, actionIntent(ACTION_NEXT))
+        views.setOnClickPendingIntent(R.id.notif_prev, actionIntent(ACTION_PREV))
         views.setOnClickPendingIntent(R.id.notif_stop, actionIntent(ACTION_STOP))
         builder.setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(openApp)

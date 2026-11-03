@@ -47,6 +47,19 @@ sin dependencias externas.
 - **Puente JS ↔ Java**: la página reporta play/pausa y título
   (`TubeBridge`), y nativo controla el video. Sincroniza notificación,
   lockscreen y MediaSession incluso con la actividad muerta.
+
+## V2 media: órdenes PLAY / PAUSE / TOGGLE
+
+- Administrador único de órdenes (`dispatch`): sesión, notificación,
+  foco de audio y botones usan el mismo embudo.
+- `PLAY`/`PAUSE` idempotentes + `TOGGLE`; la API JS `TubePlayback`
+  (`play/pause/toggle/next/prev/getState`) comprueba el estado real y
+  reporta si no hay video.
+- El servicio NO voltea estado al pulsar: espera confirmación del
+  reproductor (puente), con anti-duplicados y reconciliación a los 3 s
+  (un reintento). Sin bucles ni notificaciones infinitas.
+- Notificación propia con 5 acciones discretas: anterior, reproducir,
+  pausar, siguiente, detener (+ tap abre la app).
 - **PiP**: botón flotante o automático al salir con video en pantalla
   completa (requiere Android 8+).
 
