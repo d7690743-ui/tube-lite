@@ -103,9 +103,13 @@ class MainActivity : Activity() {
         )
         app.activeWebView = webView
         configureWebView()
-        if (reused == null && state == null) {
-            val last = prefs().getString("last_url", null)
-            webView.loadUrl(if (!last.isNullOrEmpty()) last else homeUrl)
+        if (reused == null) {
+            // El puente persiste en la instancia: solo se agrega al crear.
+            webView.addJavascriptInterface(TubeBridge(app), "TubeBridge")
+            if (state == null) {
+                val last = prefs().getString("last_url", null)
+                webView.loadUrl(if (!last.isNullOrEmpty()) last else homeUrl)
+            }
         }
     }
 
@@ -342,14 +346,27 @@ class MainActivity : Activity() {
         val b = blocklist
         return """
         (function() {
+          if (window.__tubeInit) return;
+          window.__tubeInit = true;
           var HIDE = '${b.hideCss}';
           var SKIP = '${b.skipButtons}';
           var MARK = '${b.adMarkers}';
+          var lastRep = '';
           try {
             var s = document.createElement('style');
             s.textContent = HIDE + '{display:none!important}';
             document.head.appendChild(s);
           } catch (e) {}
+          function report() {
+            try {
+              if (!window.TubeBridge) return;
+              var v = document.querySelector('video');
+              var playing = v ? !v.paused : false;
+              var t = (document.title || '').substring(0, 80);
+              var key = (playing ? '1' : '0') + '|' + t;
+              if (key !== lastRep) { lastRep = key; TubeBridge.onState(playing, t); }
+            } catch (e) {}
+          }
           function skip() {
             try {
               var v = document.querySelector('video');
@@ -362,8 +379,10 @@ class MainActivity : Activity() {
                 v.muted = false;
               }
             } catch (e) {}
+            report();
           }
           setInterval(skip, 500);
+          skip();
         })();
         """.trimIndent()
     }

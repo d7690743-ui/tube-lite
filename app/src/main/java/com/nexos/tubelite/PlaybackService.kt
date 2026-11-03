@@ -5,9 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.os.Build
@@ -27,8 +30,20 @@ class PlaybackService : Service() {
     private var session: MediaSession? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var playing = true
+    private var trackTitle = ""
     private val channelId = "tubelite_playback"
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val stateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            playing = intent.getBooleanExtra("playing", playing)
+            val title = intent.getStringExtra("title")
+            if (!title.isNullOrEmpty()) trackTitle = title
+            session?.updateState()
+            session?.updateMeta()
+            refreshNotification()
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -52,6 +67,14 @@ class PlaybackService : Service() {
             })
             isActive = true
             updateState()
+            updateMeta()
+        }
+        val filter = IntentFilter(ACTION_STATE)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(stateReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            @Suppress("DEPRECATION")
+            registerReceiver(stateReceiver, filter)
         }
         startFg()
     }
@@ -87,6 +110,10 @@ class PlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        try {
+            unregisterReceiver(stateReceiver)
+        } catch (_: Exception) {
+        }
         releaseWakeLock()
         session?.release()
         session = null
@@ -116,6 +143,15 @@ class PlaybackService : Service() {
             PlaybackState.Builder()
                 .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE)
                 .setState(state, 0L, 1.0f)
+                .build()
+        )
+    }
+
+    private fun MediaSession.updateMeta() {
+        setMetadata(
+            MediaMetadata.Builder()
+                .putString(MediaMetadata.METADATA_KEY_TITLE, trackTitle.ifEmpty { "TubeLite" })
+                .putString(MediaMetadata.METADATA_KEY_ARTIST, "YouTube")
                 .build()
         )
     }
@@ -159,8 +195,8 @@ class PlaybackService : Service() {
         val toggleIcon = if (playing) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
         val toggleText = if (playing) "Pausar" else "Reproducir"
         builder.setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentTitle("TubeLite en segundo plano")
-            .setContentText("Audio activo. Usa Pausar o vuelve a la app.")
+            .setContentTitle(if (trackTitle.isEmpty()) "TubeLite en segundo plano" else trackTitle)
+            .setContentText(if (playing) "Reproduciendo" else "Pausado")
             .setContentIntent(openApp)
             .setOngoing(true)
             .setCategory(Notification.CATEGORY_TRANSPORT)
@@ -183,6 +219,7 @@ class PlaybackService : Service() {
     companion object {
         const val ACTION_TOGGLE = "com.nexos.tubelite.TOGGLE"
         const val ACTION_STOP = "com.nexos.tubelite.STOP"
+        const val ACTION_STATE = "com.nexos.tubelite.STATE"
         const val NOTIFY_ID = 3001
     }
 }

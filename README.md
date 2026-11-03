@@ -25,7 +25,10 @@ sin dependencias externas.
   al reabrir sigue donde iba; si el proceso muere, se restaura la
   última URL.
 - **Notificación multimedia**: play/pausa desde la barra, la pantalla
-  de bloqueo y botones Bluetooth.
+  de bloqueo y botones Bluetooth, con el título real del video.
+- **Puente JS ↔ Java**: la página reporta play/pausa y título
+  (`TubeBridge`), y nativo controla el video. Sincroniza notificación,
+  lockscreen y MediaSession incluso con la actividad muerta.
 - **PiP**: botón flotante o automático al salir con video en pantalla
   completa (requiere Android 8+).
 

@@ -9,4 +9,9 @@ class TubeApp : Application() {
 
     /** WebView que recibe play/pausa (el de la actividad viva o el aparcado). */
     var activeWebView: WebView? = null
+
+    /** Último estado reportado por el puente JS (notificación/metadata). */
+    @Volatile var lastPlaying = true
+
+    @Volatile var lastTitle = ""
 }
