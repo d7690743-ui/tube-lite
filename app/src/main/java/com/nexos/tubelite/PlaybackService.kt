@@ -10,6 +10,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaMetadata
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -31,6 +34,20 @@ class PlaybackService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var playing = true
     private var trackTitle = ""
+    private var audioManager: AudioManager? = null
+    private var focusRequest: AudioFocusRequest? = null
+    private var focusHeld = false
+    private var pausedByFocus = false
+    private var ducked = false
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_GAIN -> onFocusGain()
+            AudioManager.AUDIOFOCUS_LOSS -> onFocusLoss()
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> onFocusLoss()
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> onFocusDuck()
+        }
+    }
     private val channelId = "tubelite_playback"
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -76,6 +93,7 @@ class PlaybackService : Service() {
             @Suppress("DEPRECATION")
             registerReceiver(stateReceiver, filter)
         }
+        requestFocus()
         startFg()
         mainHandler.postDelayed(watchdog, 2000)
     }
@@ -83,6 +101,7 @@ class PlaybackService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                abandonFocus()
                 try {
                     val app = application as TubeApp
                     app.parkedWebView?.destroy()
@@ -95,6 +114,7 @@ class PlaybackService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_TOGGLE -> {
+                pausedByFocus = false // el usuario toma el control: GAIN futuro no reanuda
                 playing = !playing
                 session?.updateState()
                 sendToggle()
@@ -111,6 +131,7 @@ class PlaybackService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        abandonFocus()
         try {
             mainHandler.removeCallbacks(watchdog)
         } catch (_: Exception) {
@@ -190,6 +211,101 @@ class PlaybackService : Service() {
             } catch (_: Exception) {
             }
             mainHandler.postDelayed(this, 2000)
+        }
+    }
+
+    // ---------- Audio Focus ----------
+
+    /** Pide foco una sola vez; si ya está pedido no repite. */
+    private fun requestFocus() {
+        if (focusHeld) return
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        audioManager = am
+        val granted = if (Build.VERSION.SDK_INT >= 26) {
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                )
+                .setOnAudioFocusChangeListener(focusListener, mainHandler)
+                .build()
+            focusRequest = req
+            am.requestAudioFocus(req) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        } else {
+            @Suppress("DEPRECATION")
+            am.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN) ==
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        }
+        focusHeld = granted
+    }
+
+    private fun abandonFocus() {
+        if (!focusHeld) return
+        focusHeld = false
+        pausedByFocus = false
+        try {
+            if (Build.VERSION.SDK_INT >= 26) {
+                focusRequest?.let { audioManager?.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.abandonAudioFocus(focusListener)
+            }
+        } catch (_: Exception) {
+        }
+        focusRequest = null
+    }
+
+    private fun onFocusGain() {
+        if (ducked) {
+            ducked = false
+            evalVolume(1.0f)
+        }
+        // Solo reanuda si pausamos NOSOTROS por pérdida de foco.
+        if (pausedByFocus) {
+            pausedByFocus = false
+            playing = true
+            jsPlay()
+            session?.updateState()
+            refreshNotification()
+        }
+    }
+
+    private fun onFocusLoss() {
+        // Si el usuario ya había pausado, no tocamos nada.
+        if (!playing) return
+        pausedByFocus = true
+        playing = false
+        jsPause()
+        session?.updateState()
+        refreshNotification()
+    }
+
+    private fun onFocusDuck() {
+        if (!playing || ducked) return
+        ducked = true
+        evalVolume(0.2f)
+    }
+
+    private fun evalVolume(v: Float) {
+        evalJs("(function(){try{var el=document.querySelector('video');if(el){el.volume=$v;}}}catch(e){}})();")
+    }
+
+    private fun jsPlay() {
+        evalJs("(function(){var v=document.querySelector('video');if(!v)return;window.__wasPlaying=true;v.play();})();")
+    }
+
+    private fun jsPause() {
+        evalJs("(function(){var v=document.querySelector('video');if(!v)return;window.__wasPlaying=false;v.pause();})();")
+    }
+
+    private fun evalJs(js: String) {
+        mainHandler.post {
+            try {
+                (application as TubeApp).activeWebView?.evaluateJavascript(js, null)
+            } catch (_: Exception) {
+            }
         }
     }
 
