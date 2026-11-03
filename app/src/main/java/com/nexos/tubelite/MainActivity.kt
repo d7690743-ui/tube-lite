@@ -40,7 +40,9 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var fullscreenBox: FrameLayout
     private lateinit var controlsRow: LinearLayout
+    private lateinit var controlsToggle: Button
     private lateinit var bgButton: Button
+    private var controlsOpen = false
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
 
@@ -84,6 +86,8 @@ class MainActivity : Activity() {
         webContainer = findViewById(R.id.web_container)
         fullscreenBox = findViewById(R.id.fullscreen)
         controlsRow = findViewById(R.id.controls)
+        controlsToggle = findViewById(R.id.controls_toggle)
+        controlsToggle.setOnClickListener { toggleControls() }
         bgButton = findViewById(R.id.bg_toggle)
 
         obtainWebView(savedInstanceState)
@@ -346,7 +350,19 @@ class MainActivity : Activity() {
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        controlsRow.visibility = if (isInPictureInPictureMode) View.GONE else View.VISIBLE
+        if (isInPictureInPictureMode) {
+            controlsRow.visibility = View.GONE
+            controlsToggle.visibility = View.GONE
+        } else {
+            controlsToggle.visibility = View.VISIBLE
+            controlsRow.visibility = if (controlsOpen) View.VISIBLE else View.GONE
+        }
+    }
+
+    /** Muestra/oculta la barra de controles sin tapar el buscador de YouTube. */
+    private fun toggleControls() {
+        controlsOpen = !controlsOpen
+        controlsRow.visibility = if (controlsOpen) View.VISIBLE else View.GONE
     }
 
     private fun prefs() = getSharedPreferences("tubelite", MODE_PRIVATE)
