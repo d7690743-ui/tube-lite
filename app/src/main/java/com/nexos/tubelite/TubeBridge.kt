@@ -51,25 +51,28 @@ class TubeBridge(private val app: TubeApp) {
  * registra resultados inesperados de evaluateJavascript.
  */
 object JsRun {
-    fun run(app: TubeApp, tag: String, js: String) {
+    fun run(app: TubeApp, tag: String, js: String, onResult: ((String?) -> Unit)? = null, expectResult: Boolean = false) {
         val wv: WebView? = app.activeWebView
         if (wv == null) {
             if (!app.wwNullLogged) {
                 app.wwNullLogged = true
                 app.addDiag(tag, "webview-null")
             }
+            onResult?.invoke(null)
             return
         }
         app.wwNullLogged = false
         Handler(Looper.getMainLooper()).post {
             try {
                 wv.evaluateJavascript(js) { result ->
-                    if (!result.isNullOrEmpty() && result != "null") {
+                    if (!expectResult && !result.isNullOrEmpty() && result != "null") {
                         app.addDiag(tag, "result=$result")
                     }
+                    onResult?.invoke(result)
                 }
             } catch (e: Exception) {
                 app.addDiag(tag, "ex=${e.message ?: "?"}")
+                onResult?.invoke(null)
             }
         }
     }

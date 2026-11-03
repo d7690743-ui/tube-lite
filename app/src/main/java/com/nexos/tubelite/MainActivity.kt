@@ -472,6 +472,16 @@ class MainActivity : Activity() {
         (function() {
           if (window.__tubeInit) return;
           window.__tubeInit = true;
+          window.TubePlayback = {
+            _v: function(){ return document.querySelector('video'); },
+            _err: function(t, m){ try { if (window.TubeBridge) window.TubeBridge.onError(t, m); } catch (e) {} },
+            play: function(){ var v = this._v(); if (!v) { this._err('play', 'no-video'); return; } if (v.paused) { window.__wasPlaying = true; try { v.play(); } catch (e) { this._err('play', String((e && e.message) || e)); } } },
+            pause: function(){ var v = this._v(); if (!v) { this._err('pause', 'no-video'); return; } if (!v.paused) { window.__wasPlaying = false; try { v.pause(); } catch (e) { this._err('pause', String((e && e.message) || e)); } } },
+            toggle: function(){ var v = this._v(); if (!v) { this._err('toggle', 'no-video'); return; } if (v.paused) { window.__wasPlaying = true; v.play(); } else { window.__wasPlaying = false; v.pause(); } },
+            next: function(){ var x = document.querySelector('.ytp-next-button'); if (x) { x.click(); } else { this._err('next', 'no-button'); } },
+            prev: function(){ var x = document.querySelector('.ytp-prev-button'); if (x) { x.click(); } else { this._err('prev', 'no-button'); } },
+            getState: function(){ var v = this._v(); return JSON.stringify({hasVideo: !!v, playing: v ? !v.paused : false, was: !!window.__wasPlaying}); }
+          };
           var HIDE = '${b.hideCss}';
           var SKIP = '${b.skipButtons}';
           var MARK = '${b.adMarkers}';

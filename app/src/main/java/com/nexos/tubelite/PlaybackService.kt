@@ -21,7 +21,9 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.view.KeyEvent
 import android.widget.RemoteViews
+import org.json.JSONObject
 
 /**
  * Segundo plano forzado: foreground inmediato con tipo mediaPlayback,
@@ -54,9 +56,15 @@ class PlaybackService : Service() {
 
     private val stateReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            playing = intent.getBooleanExtra("playing", playing)
+            // Confirmación del reproductor (fuente de verdad): adopta y limpia pendiente.
+            val reported = intent.getBooleanExtra("playing", playing)
+            if (pending == Command.TOGGLE) pending = null
+            else if (pending == Command.PLAY && reported) pending = null
+            else if (pending == Command.PAUSE && !reported) pending = null
+            playing = reported
             val title = intent.getStringExtra("title")
             if (!title.isNullOrEmpty()) {
+                if ((pending == Command.NEXT || pending == Command.PREV) && title != trackTitle) pending = null
                 trackTitle = title
                 try {
                     getSharedPreferences("tubelite", MODE_PRIVATE).edit().putString("last_title", title).apply()
@@ -82,11 +90,38 @@ class PlaybackService : Service() {
         session = MediaSession(this, "TubeLite").apply {
             setCallback(object : MediaSession.Callback() {
                 override fun onPlay() {
-                    sendToggle()
+                    sendPlay()
                 }
 
                 override fun onPause() {
-                    sendToggle()
+                    sendPause()
+                }
+
+                override fun onSkipToNext() {
+                    dispatch(Command.NEXT)
+                }
+
+                override fun onSkipToPrevious() {
+                    dispatch(Command.PREV)
+                }
+
+                override fun onMediaButtonEvent(mediaButtonIntent: Intent?): Boolean {
+                    val event = try {
+                        @Suppress("DEPRECATION")
+                        mediaButtonIntent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                    } catch (_: Exception) {
+                        null
+                    } ?: return super.onMediaButtonEvent(mediaButtonIntent)
+                    if (event.action != KeyEvent.ACTION_DOWN) return true
+                    when (event.keyCode) {
+                        KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> dispatch(Command.TOGGLE)
+                        KeyEvent.KEYCODE_MEDIA_PLAY -> dispatch(Command.PLAY)
+                        KeyEvent.KEYCODE_MEDIA_PAUSE -> dispatch(Command.PAUSE)
+                        KeyEvent.KEYCODE_MEDIA_NEXT -> dispatch(Command.NEXT)
+                        KeyEvent.KEYCODE_MEDIA_PREVIOUS -> dispatch(Command.PREV)
+                        else -> return super.onMediaButtonEvent(mediaButtonIntent)
+                    }
+                    return true
                 }
             })
             isActive = true
@@ -125,12 +160,27 @@ class PlaybackService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
+            ACTION_PLAY -> {
+                pausedByFocus = false
+                sendPlay()
+                return START_STICKY
+            }
+            ACTION_PAUSE -> {
+                pausedByFocus = false
+                sendPause()
+                return START_STICKY
+            }
             ACTION_TOGGLE -> {
                 pausedByFocus = false // el usuario toma el control: GAIN futuro no reanuda
-                playing = !playing
-                session?.updateState()
                 sendToggle()
-                refreshNotification()
+                return START_STICKY
+            }
+            ACTION_NEXT -> {
+                dispatch(Command.NEXT)
+                return START_STICKY
+            }
+            ACTION_PREV -> {
+                dispatch(Command.PREV)
                 return START_STICKY
             }
             else -> {
@@ -191,7 +241,10 @@ class PlaybackService : Service() {
         val state = if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
         setPlaybackState(
             PlaybackState.Builder()
-                .setActions(PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE)
+                .setActions(
+                    PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or
+                        PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS
+                )
                 .setState(state, 0L, 1.0f)
                 .build()
         )
@@ -206,9 +259,93 @@ class PlaybackService : Service() {
         )
     }
 
-    /** Play/pausa directo sobre el WebView, en el hilo UI. Funciona sin actividad. */
-    private fun sendToggle() {
-        evalJs("(function(){var v=document.querySelector('video');if(!v)return;if(v.paused){window.__wasPlaying=true;v.play();}else{window.__wasPlaying=false;v.pause();}})();")
+    /** Comandos multimedia: un solo embudo para sesión, notificación y foco. */
+    private enum class Command { PLAY, PAUSE, TOGGLE, NEXT, PREV }
+
+    private var pending: Command? = null
+    private var pendingAt = 0L
+    private var pendingRetried = false
+
+    private fun sendPlay() = dispatch(Command.PLAY)
+
+    private fun sendPause() = dispatch(Command.PAUSE)
+
+    private fun sendToggle() = dispatch(Command.TOGGLE)
+
+    private fun dispatch(cmd: Command) {
+        val now = System.currentTimeMillis()
+        // Mismo comando pendiente reciente: no reenviar (anti-duplicados).
+        if (pending == cmd && now - pendingAt < 2000) return
+        pending = cmd
+        pendingAt = now
+        pendingRetried = false
+        sendCommandJs(cmd)
+        mainHandler.postDelayed({ checkPending(cmd) }, 3000)
+    }
+
+    private fun sendCommandJs(cmd: Command) {
+        val call = when (cmd) {
+            Command.PLAY -> "TubePlayback.play()"
+            Command.PAUSE -> "TubePlayback.pause()"
+            Command.TOGGLE -> "TubePlayback.toggle()"
+            Command.NEXT -> "TubePlayback.next()"
+            Command.PREV -> "TubePlayback.prev()"
+        }
+        JsRun.run(
+            application as TubeApp, "cmd-" + cmd.name.lowercase(),
+            "(function(){try{if(!window.TubePlayback){if(window.TubeBridge)TubeBridge.onError('cmd','no-bridge');return;}$call;}" +
+                "catch(e){try{if(window.TubeBridge)TubeBridge.onError('cmd',String((e&&e.message)||e));}catch(_){}}})();"
+        )
+    }
+
+    /** Sin confirmación en 3 s: pregunta el estado real y concilia (un reintento). */
+    private fun checkPending(cmd: Command) {
+        if (pending != cmd) return
+        val app = application as TubeApp
+        JsRun.run(
+            app, "reconcile",
+            "(function(){try{if(!window.TubePlayback)return 'no-bridge';return window.TubePlayback.getState();}catch(e){return 'ex';}})();",
+            expectResult = true
+        ) { raw ->
+            if (pending != cmd) return@run
+            val adopted = parsePlaying(raw)
+            if (adopted == null) {
+                pending = null
+                return@run
+            }
+            val want = when (cmd) {
+                Command.PLAY -> true
+                Command.PAUSE -> false
+                else -> null // TOGGLE/NEXT/PREV: adoptar realidad, no reenviar
+            }
+            if (want != null && adopted != want && !pendingRetried) {
+                pendingRetried = true
+                pendingAt = System.currentTimeMillis()
+                sendCommandJs(cmd)
+                mainHandler.postDelayed({ checkPending(cmd) }, 3000)
+            } else {
+                pending = null
+                if (adopted != playing) {
+                    playing = adopted
+                    session?.updateState()
+                    refreshNotification()
+                }
+            }
+        }
+    }
+
+    private fun parsePlaying(raw: String?): Boolean? {
+        if (raw.isNullOrEmpty() || raw == "null") return null
+        return try {
+            var t = raw.trim()
+            if (t.length >= 2 && t.startsWith("\"") && t.endsWith("\"")) {
+                t = t.substring(1, t.length - 1).replace("\\\"", "\"").replace("\\\\", "\\")
+            }
+            val o = JSONObject(t)
+            if (o.has("playing")) o.getBoolean("playing") else null
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -283,10 +420,7 @@ class PlaybackService : Service() {
         // Solo reanuda si pausamos NOSOTROS por pérdida de foco.
         if (pausedByFocus) {
             pausedByFocus = false
-            playing = true
-            jsPlay()
-            session?.updateState()
-            refreshNotification()
+            sendPlay() // confirmación vía puente; sin volteos optimistas
         }
     }
 
@@ -294,10 +428,7 @@ class PlaybackService : Service() {
         // Si el usuario ya había pausado, no tocamos nada.
         if (!playing) return
         pausedByFocus = true
-        playing = false
-        jsPause()
-        session?.updateState()
-        refreshNotification()
+        sendPause() // confirmación vía puente; sin volteos optimistas
     }
 
     private fun onFocusDuck() {
@@ -308,14 +439,6 @@ class PlaybackService : Service() {
 
     private fun evalVolume(v: Float) {
         evalJs("(function(){try{var el=document.querySelector('video');if(el){el.volume=$v;}}}catch(e){}})();")
-    }
-
-    private fun jsPlay() {
-        evalJs("(function(){var v=document.querySelector('video');if(!v)return;window.__wasPlaying=true;v.play();})();")
-    }
-
-    private fun jsPause() {
-        evalJs("(function(){var v=document.querySelector('video');if(!v)return;window.__wasPlaying=false;v.pause();})();")
     }
 
     private fun evalJs(js: String) {
@@ -375,7 +498,11 @@ class PlaybackService : Service() {
     }
 
     companion object {
+        const val ACTION_PLAY = "com.nexos.tubelite.PLAY"
+        const val ACTION_PAUSE = "com.nexos.tubelite.PAUSE"
         const val ACTION_TOGGLE = "com.nexos.tubelite.TOGGLE"
+        const val ACTION_NEXT = "com.nexos.tubelite.NEXT"
+        const val ACTION_PREV = "com.nexos.tubelite.PREV"
         const val ACTION_STOP = "com.nexos.tubelite.STOP"
         const val ACTION_STATE = "com.nexos.tubelite.STATE"
         const val NOTIFY_ID = 3001
