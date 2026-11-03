@@ -105,10 +105,10 @@ class PlaybackService : Service() {
                     dispatch(Command.PREV)
                 }
 
-                override fun onMediaButtonEvent(mediaButtonIntent: Intent?): Boolean {
+                override fun onMediaButtonEvent(mediaButtonIntent: Intent): Boolean {
                     val event = try {
                         @Suppress("DEPRECATION")
-                        mediaButtonIntent?.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
+                        mediaButtonIntent.getParcelableExtra<KeyEvent>(Intent.EXTRA_KEY_EVENT)
                     } catch (_: Exception) {
                         null
                     } ?: return super.onMediaButtonEvent(mediaButtonIntent)
@@ -305,8 +305,7 @@ class PlaybackService : Service() {
         JsRun.run(
             app, "reconcile",
             "(function(){try{if(!window.TubePlayback)return 'no-bridge';return window.TubePlayback.getState();}catch(e){return 'ex';}})();",
-            expectResult = true
-        ) { raw ->
+            { raw ->
             if (pending != cmd) return@run
             val adopted = parsePlaying(raw)
             if (adopted == null) {
@@ -331,7 +330,9 @@ class PlaybackService : Service() {
                     refreshNotification()
                 }
             }
-        }
+            },
+            true
+        )
     }
 
     private fun parsePlaying(raw: String?): Boolean? {
