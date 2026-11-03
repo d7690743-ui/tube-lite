@@ -30,6 +30,18 @@ sin dependencias externas.
   pides (tap o notificación) sí se respeta.
 - Si tu marca (Xiaomi/Oppo/Vivo/Huawei) igual lo corta: Ajustes >
   Batería > TubeLite > Sin restricciones.
+
+## V2: foco de audio, diagnóstico y recuperación
+
+- **Audio Focus**: llamadas y otras apps pausan (transitorio) o bajan
+  volumen (duck); al volver el foco reanuda solo si la app pausó (nunca
+  si pausaste tú).
+- **Diag**: botón que muestra errores JS/nativos con hora (sin URLs ni
+  títulos). Todo `evaluateJavascript` crítico registra resultado.
+- **Ciclo**: `onPause`/`onResume` pausan solo con Fondo OFF (nunca en
+  PiP); `onTaskRemoved` no detiene; sin referencias obsoletas.
+- **Renderer**: `onRenderProcessGone` reconstruye el WebView con última
+  URL+título+posición (mejor esfuerzo, respeta tu pausa).
 - **Notificación multimedia**: play/pausa desde la barra, la pantalla
   de bloqueo y botones Bluetooth, con el título real del video.
 - **Puente JS ↔ Java**: la página reporta play/pausa y título

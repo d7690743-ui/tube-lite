@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -46,6 +47,7 @@ class MainActivity : Activity() {
     private var bgOn = false
     private var pendingBg = false
     private var pausedByLifecycle = false
+    private var pendingResume: Boolean? = null
     private val notifyPermCode = 3001
 
     private val defaultBlocklist = Blocklist(
@@ -104,8 +106,28 @@ class MainActivity : Activity() {
         val app = application as TubeApp
         val reused = app.parkedWebView
         app.parkedWebView = null
-        webView = reused ?: WebView(applicationContext)
-        (webView.parent as? ViewGroup)?.removeView(webView)
+        if (reused != null) {
+            webView = reused
+            (webView.parent as? ViewGroup)?.removeView(webView)
+            webContainer.addView(
+                webView,
+                FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                )
+            )
+            app.activeWebView = webView
+            configureWebView()
+        } else {
+            attachFreshWebView()
+            if (state == null) loadLastOrHome()
+        }
+    }
+
+    /** Crea, anexa, configura y puentea un WebView nuevo. No carga URL. */
+    private fun attachFreshWebView() {
+        val app = application as TubeApp
+        webView = WebView(applicationContext)
         webContainer.addView(
             webView,
             FrameLayout.LayoutParams(
@@ -115,14 +137,39 @@ class MainActivity : Activity() {
         )
         app.activeWebView = webView
         configureWebView()
-        if (reused == null) {
-            // El puente persiste en la instancia: solo se agrega al crear.
-            webView.addJavascriptInterface(TubeBridge(app), "TubeBridge")
-            if (state == null) {
-                val last = prefs().getString("last_url", null)
-                webView.loadUrl(if (!last.isNullOrEmpty()) last else homeUrl)
+        // El puente persiste en la instancia: solo se agrega al crear.
+        webView.addJavascriptInterface(TubeBridge(app), "TubeBridge")
+    }
+
+    private fun loadLastOrHome(withPosition: Boolean = false) {
+        val last = prefs().getString("last_url", null)
+        var target = if (!last.isNullOrEmpty()) last else homeUrl
+        if (withPosition && !last.isNullOrEmpty()) {
+            val (pos, dur) = (application as TubeApp).loadProgress()
+            // Mejor esfuerzo: YouTube acepta ?t=Ns pero no se promete reanudar exacto.
+            if (pos > 10 && dur > 0) {
+                target = last + (if (last.contains("?")) "&" else "?") + "t=" + pos + "s"
             }
         }
+        webView.loadUrl(target)
+    }
+
+    /** Renderer muerto: destruir el cadáver y reconstruir con última URL. */
+    private fun recoverRenderer(gone: WebView?) {
+        val app = application as TubeApp
+        try {
+            (gone?.parent as? ViewGroup)?.removeView(gone)
+            gone?.destroy()
+        } catch (_: Exception) {
+        }
+        if (app.parkedWebView === gone) app.parkedWebView = null
+        if (app.activeWebView === gone) app.activeWebView = null
+        if (isFinishing || isDestroyed) return
+        // Respeta pausa manual: si estaba pausado, no reanudar tras recargar.
+        pendingResume = app.lastPlaying
+        attachFreshWebView()
+        loadLastOrHome(withPosition = true)
+        Toast.makeText(this, "Renderer recuperado (mejor esfuerzo)", Toast.LENGTH_SHORT).show()
     }
 
     private fun configureWebView() {
@@ -160,7 +207,19 @@ class MainActivity : Activity() {
                 if (!url.isNullOrEmpty()) {
                     prefs().edit().putString("last_url", url).apply()
                 }
+                val resume = pendingResume
+                if (resume != null) {
+                    pendingResume = null
+                    view?.evaluateJavascript("(function(){window.__wasPlaying=" + resume + ";})();", null)
+                }
                 view?.evaluateJavascript(skipJs(), null)
+            }
+
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val crashed = detail?.didCrash() == true
+                (application as TubeApp).addDiag("renderer", "gone crashed=$crashed")
+                runOnUiThread { recoverRenderer(view) }
+                return true // la app lo maneja: no matar el proceso
             }
         }
 
@@ -444,6 +503,7 @@ class MainActivity : Activity() {
               var t = (document.title || '').substring(0, 80);
               var key = (playing ? '1' : '0') + '|' + t;
               if (key !== lastRep) { lastRep = key; TubeBridge.onState(playing, t); }
+              if (v && playing) { try { TubeBridge.onProgress(v.currentTime || 0, v.duration || 0); } catch (_) {} }
             } catch (e) { try { if (window.TubeBridge) TubeBridge.onError('report', String((e && e.message) || e)); } catch (_) {} }
           }
           function skip() {

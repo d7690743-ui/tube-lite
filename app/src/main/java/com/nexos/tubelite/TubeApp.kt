@@ -43,4 +43,21 @@ class TubeApp : Application() {
         if (diagBuf.isEmpty()) "sin errores registrados"
         else "${diagBuf.size} errores, último: ${diagBuf.last()}"
     }
+
+    fun saveProgress(pos: Long, dur: Long) {
+        try {
+            getSharedPreferences("tubelite", MODE_PRIVATE).edit()
+                .putLong("pos_sec", pos).putLong("dur_sec", dur).apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    fun loadProgress(): Pair<Long, Long> {
+        return try {
+            val p = getSharedPreferences("tubelite", MODE_PRIVATE)
+            Pair(p.getLong("pos_sec", 0), p.getLong("dur_sec", 0))
+        } catch (_: Exception) {
+            Pair(0, 0)
+        }
+    }
 }

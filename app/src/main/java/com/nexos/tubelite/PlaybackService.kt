@@ -55,7 +55,13 @@ class PlaybackService : Service() {
         override fun onReceive(context: Context, intent: Intent) {
             playing = intent.getBooleanExtra("playing", playing)
             val title = intent.getStringExtra("title")
-            if (!title.isNullOrEmpty()) trackTitle = title
+            if (!title.isNullOrEmpty()) {
+                trackTitle = title
+                try {
+                    getSharedPreferences("tubelite", MODE_PRIVATE).edit().putString("last_title", title).apply()
+                } catch (_: Exception) {
+                }
+            }
             session?.updateState()
             session?.updateMeta()
             refreshNotification()

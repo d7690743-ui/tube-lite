@@ -33,6 +33,17 @@ class TubeBridge(private val app: TubeApp) {
     fun onError(tag: String, message: String) {
         app.addDiag("js-$tag", message)
     }
+
+    private var lastPersistAt = 0L
+
+    @JavascriptInterface
+    fun onProgress(posSec: Double, durSec: Double) {
+        if (posSec.isNaN() || durSec.isNaN()) return
+        val now = System.currentTimeMillis()
+        if (now - lastPersistAt < 15_000) return
+        lastPersistAt = now
+        app.saveProgress(posSec.toLong(), durSec.toLong())
+    }
 }
 
 /**
