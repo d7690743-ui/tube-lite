@@ -26,6 +26,8 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import com.nexos.tubelite.TubeApp
+import com.nexos.tubelite.extractor.TrackRetry
 import com.nexos.tubelite.extractor.VideoStreamsBundle
 import com.nexos.tubelite.extractor.YouTubeService
 import com.nexos.tubelite.extractor.selectVideoFormat
@@ -70,6 +72,7 @@ object PlaybackManager {
     var pendingSeekMs: Long = 0L
     var currentVideoStreamsBundle: VideoStreamsBundle? = null
     val visualizerAudioProcessor = RealtimeVisualizerAudioProcessor()
+    private val trackRetry = TrackRetry()
 
     fun init(context: Context) {
         if (player != null) return
@@ -128,6 +131,7 @@ object PlaybackManager {
                             Player.STATE_READY -> {
                                 isLoadingTrack = false
                                 onLoadingStateListener?.invoke(false)
+                                trackRetry.onRecovered()
                                 val sessionId = player?.audioSessionId ?: 0
                                 if (sessionId != 0) {
                                     AudioEqualizerManager.init(app, sessionId)
@@ -160,12 +164,37 @@ object PlaybackManager {
                         isLoadingTrack = false
                         onLoadingStateListener?.invoke(false)
                         Log.e(TAG, "Error en ExoPlayer: ${error.errorCodeName} - ${error.message}", error)
-                        // Auto-recuperación: si falla el stream y hay cola continua, pasar al siguiente tema sin congelarse
-                        if (isContinuous && queue.size > 1) {
+                        try {
+                            (appContext as? TubeApp)?.addDiag("exo", "err=${error.errorCodeName}")
+                        } catch (_: Exception) {
+                        }
+                        // Auto-recuperación: reintenta la pista con URL fresca (las de
+                        // YouTube caducan) y solo si repite el fallo pasa a la siguiente.
+                        val track = getCurrentTrack()
+                        val key = track?.id ?: currentIndex.toString()
+                        if (track != null && trackRetry.shouldRetry(key)) {
                             scope.launch {
-                                kotlinx.coroutines.delay(1200)
+                                delay(1500)
+                                try {
+                                    streamCache.remove(cleanVideoId(rawUrlFor(track)))
+                                } catch (_: Exception) {
+                                }
+                                currentVideoStreamsBundle = null
+                                loadCurrent()
+                            }
+                        } else if (isContinuous && queue.size > 1) {
+                            scope.launch {
+                                delay(1200)
                                 playNext()
                             }
+                        } else {
+                            // Sin a dónde ir: estado parado honesto, sin notificación colgada.
+                            try {
+                                player?.stop()
+                            } catch (_: Exception) {
+                            }
+                            appContext?.let { NativePlaybackService.stop(it) }
+                            onTrackChangedListener?.invoke(track)
                         }
                     }
 
@@ -518,9 +547,12 @@ object PlaybackManager {
         }
     }
 
+    private fun rawUrlFor(track: SearchResult): String =
+        if (isVideoMode) track.videoUrl.ifEmpty { track.audioUrl } else track.audioUrl.ifEmpty { track.videoUrl }
+
     fun loadCurrent() {
         val track = getCurrentTrack() ?: return
-        val rawUrl = if (isVideoMode) track.videoUrl.ifEmpty { track.audioUrl } else track.audioUrl.ifEmpty { track.videoUrl }
+        val rawUrl = rawUrlFor(track)
         onTrackChangedListener?.invoke(track)
 
         appContext?.let { ctx ->

@@ -1,5 +1,6 @@
 package com.nexos.tubelite.player
 
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -7,6 +8,8 @@ import android.util.Log
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.nexos.tubelite.TubeApp
+import com.nexos.tubelite.ui.NativePlayerActivity
 
 /**
  * Segundo plano del reproductor nativo (ExoPlayer).
@@ -26,10 +29,18 @@ class NativePlaybackService : MediaSessionService() {
             val player = PlaybackManager.player
             if (player == null) {
                 Log.e(TAG, "ExoPlayer nulo; deteniendo servicio nativo")
+                (application as? TubeApp)?.addDiag("nsvc", "sin-player")
                 stopSelf()
                 return
             }
-            session = MediaSession.Builder(this, player).build()
+            // Puente notificación → app: tocar la notificación abre el reproductor.
+            val openPlayer = PendingIntent.getActivity(
+                this, 0,
+                Intent(this, NativePlayerActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            session = MediaSession.Builder(this, player).setSessionActivity(openPlayer).build()
             setMediaNotificationProvider(
                 DefaultMediaNotificationProvider(this).apply {
                     setSmallIcon(android.R.drawable.ic_media_play)
@@ -37,6 +48,7 @@ class NativePlaybackService : MediaSessionService() {
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error creando servicio nativo", e)
+            (application as? TubeApp)?.addDiag("nsvc", "onCreate-ex")
             stopSelf()
         }
     }
@@ -83,6 +95,7 @@ class NativePlaybackService : MediaSessionService() {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "No se pudo arrancar servicio nativo: ${e.message}")
+                (app as? TubeApp)?.addDiag("nsvc", "start-fail")
             }
         }
 
