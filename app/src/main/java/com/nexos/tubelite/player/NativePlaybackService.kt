@@ -95,7 +95,7 @@ class NativePlaybackService : MediaSessionService() {
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "No se pudo arrancar servicio nativo: ${e.message}")
-                (app as? TubeApp)?.addDiag("nsvc", "start-fail")
+                (context.applicationContext as? TubeApp)?.addDiag("nsvc", "start-fail")
             }
         }
 
