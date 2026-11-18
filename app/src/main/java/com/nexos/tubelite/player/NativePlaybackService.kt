@@ -43,6 +43,13 @@ class NativePlaybackService : MediaSessionService() {
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = session
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Barrido de recientes con audio sonando (o cargando): NO detener,
+        // igual que PlaybackService. Pausado: comportamiento base (stop).
+        if (PlaybackManager.isPlaying || PlaybackManager.isLoadingTrack) return
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         running = false
         try {

@@ -107,6 +107,8 @@ Media3/ExoPlayer (botones Nativo/Buscar en la segunda fila de controles):
   FFT** de 36 bandas sin permisos extra.
 - **Descargas**: audio M4A o video 360p MP4 con cola y biblioteca
   sin red (botón ⬇, búsqueda con pulsación larga, o pantalla DLs).
+- **Carga con búfer**: arranque con 1.5 s, colchón de hasta 60 s y caché
+  en disco (200 MB): lo ya visto no se descarga de nuevo.
 - Segundo plano con MediaSession: notificación, lockscreen y
   Bluetooth. Solo un modo suena a la vez (WebView o nativo).
 

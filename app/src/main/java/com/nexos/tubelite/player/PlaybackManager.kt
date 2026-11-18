@@ -11,8 +11,14 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.audio.AudioSink
@@ -22,6 +28,8 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.nexos.tubelite.extractor.VideoStreamsBundle
 import com.nexos.tubelite.extractor.YouTubeService
+import com.nexos.tubelite.extractor.selectVideoFormat
+import com.nexos.tubelite.extractor.videoSizeForQuality
 import com.nexos.tubelite.model.ResultType
 import com.nexos.tubelite.model.SearchResult
 import com.nexos.tubelite.ui.views.RealtimeVisualizerAudioProcessor
@@ -68,15 +76,10 @@ object PlaybackManager {
         val app = context.applicationContext
         appContext = app
 
-        // 1. Fábrica HTTP para streams remotos
-        val httpSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT_ANDROID)
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(20000)
-            .setAllowCrossProtocolRedirects(true)
-
-        // 2. Fábrica de datos predeterminada: CRUCIAL para reproducir archivos locales (file://) Y streams remotos (http/https)
-        val defaultDataSourceFactory = DefaultDataSource.Factory(app, httpSourceFactory)
+        // 1. Fábrica de datos con caché en disco: CRUCIAL para reproducir archivos
+        // locales (file://) Y streams remotos (http/https). Lo remoto pasa por
+        // HTTP con UA de YouTube y se guarda en caché (ver cachedDataSourceFactory).
+        val defaultDataSourceFactory = DefaultDataSource.Factory(app, cachedDataSourceFactory(app))
 
         val mediaSourceFactory = DefaultMediaSourceFactory(app)
             .setDataSourceFactory(defaultDataSourceFactory)
@@ -96,6 +99,14 @@ object PlaybackManager {
 
         player = ExoPlayer.Builder(app, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
+            // Búfer de carga: arranca con 1.5 s, guarda hasta 60 s para aguantar
+            // cortes de red y prioriza tiempo sobre bytes en redes lentas.
+            .setLoadControl(
+                DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(15_000, 60_000, 1_500, 3_000)
+                    .setPrioritizeTimeOverSizeThresholds(true)
+                    .build()
+            )
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -176,6 +187,34 @@ object PlaybackManager {
         if (queue.isNotEmpty()) {
             loadCurrent()
         }
+    }
+
+    // ---------- Búfer y caché en disco ----------
+
+    private var mediaCache: SimpleCache? = null
+
+    /** Caché LRU de 200 MB en cacheDir: lo ya visto no se descarga de nuevo. */
+    @Synchronized
+    private fun cache(app: Context): SimpleCache {
+        mediaCache?.let { return it }
+        return SimpleCache(
+            File(app.cacheDir, "tubelite-media"),
+            LeastRecentlyUsedCacheEvictor(200L * 1024 * 1024),
+            StandaloneDatabaseProvider(app)
+        ).also { mediaCache = it }
+    }
+
+    /** HTTP con UA de YouTube envuelto en caché (ignora caché corrupta). */
+    private fun cachedDataSourceFactory(app: Context): DataSource.Factory {
+        val http = DefaultHttpDataSource.Factory()
+            .setUserAgent(USER_AGENT_ANDROID)
+            .setConnectTimeoutMs(10000)
+            .setReadTimeoutMs(20000)
+            .setAllowCrossProtocolRedirects(true)
+        return CacheDataSource.Factory()
+            .setCache(cache(app))
+            .setUpstreamDataSourceFactory(http)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
     }
 
     /**
@@ -423,31 +462,21 @@ object PlaybackManager {
 
     private fun applyVideoStreamsToPlayer(bundle: VideoStreamsBundle, quality: String, startPosMs: Long) {
         val p = player ?: return
-        val httpSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT_ANDROID)
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(20000)
-            .setAllowCrossProtocolRedirects(true)
+        val app = appContext ?: return
+        val dsFactory = cachedDataSourceFactory(app)
 
         try {
             // Caso 1: Manifiesto HLS disponible
             if (!bundle.hlsManifestUrl.isNullOrEmpty()) {
-                if (quality == "Auto") {
-                    p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
+                val size = videoSizeForQuality(quality)
+                p.trackSelectionParameters = if (size == null) {
+                    p.trackSelectionParameters.buildUpon()
                         .clearVideoSizeConstraints()
                         .build()
                 } else {
-                    val (w, h) = when (quality) {
-                        "1080p" -> Pair(1920, 1080)
-                        "720p" -> Pair(1280, 720)
-                        "480p" -> Pair(854, 480)
-                        "360p" -> Pair(640, 360)
-                        "240p" -> Pair(426, 240)
-                        else -> Pair(1280, 720)
-                    }
-                    p.trackSelectionParameters = p.trackSelectionParameters.buildUpon()
-                        .setMaxVideoSize(w, h)
-                        .setMinVideoSize(w, h)
+                    p.trackSelectionParameters.buildUpon()
+                        .setMaxVideoSize(size.first, size.second)
+                        .setMinVideoSize(size.first, size.second)
                         .build()
                 }
                 Log.i(TAG, "Aplicando HLS en ExoPlayer (calidad=$quality): ${bundle.hlsManifestUrl}")
@@ -458,11 +487,7 @@ object PlaybackManager {
             }
 
             // Caso 2: Formatos directos HTTP (1080p, 720p, 480p, 360p)
-            val selectedFormat = if (quality == "Auto") {
-                bundle.formats.find { it.qualityLabel == "720p" } ?: bundle.formats.firstOrNull()
-            } else {
-                bundle.formats.find { it.qualityLabel == quality } ?: bundle.formats.firstOrNull()
-            }
+            val selectedFormat = selectVideoFormat(bundle.formats, quality)
 
             if (selectedFormat != null) {
                 if (selectedFormat.isProgressive || selectedFormat.audioUrl.isNullOrEmpty()) {
@@ -472,9 +497,9 @@ object PlaybackManager {
                     p.play()
                 } else {
                     Log.i(TAG, "Cargando MergingMediaSource video ($quality) + audio AAC")
-                    val videoSource = ProgressiveMediaSource.Factory(httpSourceFactory)
+                    val videoSource = ProgressiveMediaSource.Factory(dsFactory)
                         .createMediaSource(MediaItem.fromUri(Uri.parse(selectedFormat.videoUrl)))
-                    val audioSource = ProgressiveMediaSource.Factory(httpSourceFactory)
+                    val audioSource = ProgressiveMediaSource.Factory(dsFactory)
                         .createMediaSource(MediaItem.fromUri(Uri.parse(selectedFormat.audioUrl)))
                     val merged = MergingMediaSource(videoSource, audioSource)
 

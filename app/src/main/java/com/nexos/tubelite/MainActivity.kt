@@ -503,11 +503,15 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Abre un video primero", Toast.LENGTH_SHORT).show()
             return
         }
-        NativeHandoff.toNative(this, bgOn) {
+        NativeHandoff.toNative(this, bgOn) { ok ->
             runOnUiThread {
-                bgOn = false
-                updateBgButton()
-                Toast.makeText(this, "Audio nativo (ahorro de batería)", Toast.LENGTH_SHORT).show()
+                if (ok) {
+                    bgOn = false
+                    updateBgButton()
+                    Toast.makeText(this, "Audio nativo (ahorro de batería)", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "No se pudo pasar a nativo; sigue el WebView", Toast.LENGTH_LONG).show()
+                }
                 refreshMini()
             }
         }
