@@ -77,6 +77,21 @@ class PlaybackService : Service() {
         }
     }
 
+    private val screenOffReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            if (intent.action != Intent.ACTION_SCREEN_OFF) return
+            // Pantalla apagada con audio WebView: pasar a nativo (ahorra batería).
+            val app = application as TubeApp
+            if (!app.lastPlaying) return
+            val auto = try {
+                getSharedPreferences("tubelite", MODE_PRIVATE).getBoolean("handoff_auto", true)
+            } catch (_: Exception) {
+                true
+            }
+            if (auto) NativeHandoff.toNative(this@PlaybackService, prevBgOn = true)
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         createChannel()
@@ -134,6 +149,10 @@ class PlaybackService : Service() {
         } else {
             @Suppress("DEPRECATION")
             registerReceiver(stateReceiver, filter)
+        }
+        try {
+            registerReceiver(screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF))
+        } catch (_: Exception) {
         }
         requestFocus()
         (application as TubeApp).serviceAlive = true
@@ -212,6 +231,10 @@ class PlaybackService : Service() {
         }
         try {
             unregisterReceiver(stateReceiver)
+        } catch (_: Exception) {
+        }
+        try {
+            unregisterReceiver(screenOffReceiver)
         } catch (_: Exception) {
         }
         releaseWakeLock()

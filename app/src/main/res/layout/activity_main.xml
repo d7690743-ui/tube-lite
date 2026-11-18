@@ -9,6 +9,12 @@
         android:layout_height="match_parent" />
 
     <LinearLayout
+        android:id="@+id/controls_box"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+    <LinearLayout
         android:id="@+id/controls"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -43,6 +49,67 @@
 
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/controls2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#80000000"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button
+            android:id="@+id/btn_native"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Nativo"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_search"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Buscar"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_downloads"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="DLs"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_dl"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="⬇"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_audio"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Audio"
+            android:textSize="11sp" />
+
+        <Button
+            android:id="@+id/btn_autoh"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Auto: ON"
+            android:textSize="11sp" />
+
+    </LinearLayout>
+
+    </LinearLayout>
+
     <Button
         android:id="@+id/controls_toggle"
         android:layout_width="48dp"
@@ -52,6 +119,51 @@
         android:alpha="0.7"
         android:text="="
         android:textSize="18sp" />
+
+    <LinearLayout
+        android:id="@+id/mini_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#E0181818"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/mini_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Nativo"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/mini_toggle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⏸"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/mini_open"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Abrir"
+            android:textSize="12sp" />
+
+        <Button
+            android:id="@+id/mini_web"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="→Web"
+            android:textSize="12sp" />
+
+    </LinearLayout>
 
     <FrameLayout
         android:id="@+id/fullscreen"

@@ -17,6 +17,11 @@
             android:exported="false"
             android:stopWithTask="false"
             android:foregroundServiceType="mediaPlayback" />
+        <service
+            android:name=".player.NativePlaybackService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaPlayback" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -28,6 +33,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".ui.NativePlayerActivity"
+            android:exported="false"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation|keyboardHidden" />
+        <activity
+            android:name=".ui.SearchActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".ui.DownloadsActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

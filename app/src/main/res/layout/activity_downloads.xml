@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101010"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <Button
+        android:id="@+id/dl_repair"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Reparar pendientes" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Toca para reproducir sin red. Mantén para borrar."
+        android:textColor="#BBBBBB"
+        android:textSize="13sp" />
+
+    <ListView
+        android:id="@+id/dl_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>

@@ -1,6 +1,7 @@
 package com.nexos.tubelite
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.PictureInPictureParams
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -19,7 +20,14 @@ import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
+import com.nexos.tubelite.downloader.DownloadQueueManager
+import com.nexos.tubelite.player.NativePlaybackService
+import com.nexos.tubelite.player.PlaybackManager
+import com.nexos.tubelite.ui.DownloadsActivity
+import com.nexos.tubelite.ui.NativePlayerActivity
+import com.nexos.tubelite.ui.SearchActivity
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -40,6 +48,11 @@ class MainActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var fullscreenBox: FrameLayout
     private lateinit var controlsRow: LinearLayout
+    private lateinit var controlsRow2: LinearLayout
+    private lateinit var miniBar: LinearLayout
+    private lateinit var miniTitle: TextView
+    private lateinit var miniToggle: Button
+    private lateinit var autoAudioButton: Button
     private lateinit var controlsToggle: Button
     private lateinit var bgButton: Button
     private var controlsOpen = false
@@ -98,6 +111,38 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.pip).setOnClickListener { enterPip() }
         findViewById<Button>(R.id.diag).setOnClickListener {
             Toast.makeText(this, "Diag: " + (application as TubeApp).diagSummary(), Toast.LENGTH_LONG).show()
+        }
+
+        controlsRow2 = findViewById(R.id.controls2)
+        miniBar = findViewById(R.id.mini_bar)
+        miniTitle = findViewById(R.id.mini_title)
+        miniToggle = findViewById(R.id.mini_toggle)
+        findViewById<Button>(R.id.btn_native).setOnClickListener { openNativeOrSearch() }
+        findViewById<Button>(R.id.btn_search).setOnClickListener {
+            startActivity(Intent(this, SearchActivity::class.java))
+        }
+        findViewById<Button>(R.id.btn_downloads).setOnClickListener {
+            startActivity(Intent(this, DownloadsActivity::class.java))
+        }
+        findViewById<Button>(R.id.btn_dl).setOnClickListener { downloadCurrent() }
+        findViewById<Button>(R.id.btn_audio).setOnClickListener { manualHandoff() }
+        autoAudioButton = findViewById(R.id.btn_autoh)
+        updateAutoAudioButton()
+        autoAudioButton.setOnClickListener {
+            val on = !prefs().getBoolean("handoff_auto", true)
+            prefs().edit().putBoolean("handoff_auto", on).apply()
+            updateAutoAudioButton()
+        }
+        miniToggle.setOnClickListener {
+            if (PlaybackManager.isPlaying) PlaybackManager.pause() else PlaybackManager.resume()
+            refreshMini()
+        }
+        findViewById<Button>(R.id.mini_open).setOnClickListener { openNativeOrSearch() }
+        findViewById<Button>(R.id.mini_web).setOnClickListener { handoffBack() }
+        // Reparar descargas atoradas al arrancar.
+        try {
+            DownloadQueueManager.recoverStuckDownloads(this)
+        } catch (_: Exception) {
         }
     }
 
@@ -291,6 +336,9 @@ class MainActivity : Activity() {
                 }
             }
         }
+        PlaybackManager.onTrackChangedListener = { refreshMini() }
+        PlaybackManager.onIsPlayingListener = { refreshMini() }
+        refreshMini()
     }
 
     override fun onDestroy() {
@@ -352,10 +400,12 @@ class MainActivity : Activity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         if (isInPictureInPictureMode) {
             controlsRow.visibility = View.GONE
+            controlsRow2.visibility = View.GONE
             controlsToggle.visibility = View.GONE
         } else {
             controlsToggle.visibility = View.VISIBLE
             controlsRow.visibility = if (controlsOpen) View.VISIBLE else View.GONE
+            controlsRow2.visibility = if (controlsOpen) View.VISIBLE else View.GONE
         }
     }
 
@@ -363,6 +413,7 @@ class MainActivity : Activity() {
     private fun toggleControls() {
         controlsOpen = !controlsOpen
         controlsRow.visibility = if (controlsOpen) View.VISIBLE else View.GONE
+        controlsRow2.visibility = if (controlsOpen) View.VISIBLE else View.GONE
     }
 
     private fun prefs() = getSharedPreferences("tubelite", MODE_PRIVATE)
@@ -388,6 +439,12 @@ class MainActivity : Activity() {
     }
 
     private fun startBg() {
+        // El modo WebView y el nativo no suenan juntos: apaga el nativo.
+        try {
+            NativePlaybackService.stop(this)
+            PlaybackManager.pause()
+        } catch (_: Exception) {
+        }
         val intent = Intent(this, PlaybackService::class.java)
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent) else startService(intent)
         bgOn = true
@@ -424,6 +481,99 @@ class MainActivity : Activity() {
             enterPictureInPictureMode(PictureInPictureParams.Builder().build())
         } catch (_: Exception) {
             Toast.makeText(this, "No se pudo abrir PiP", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // ---------- Reproductor nativo ----------
+
+    private fun openNativeOrSearch() {
+        if (PlaybackManager.queue.isEmpty()) {
+            startActivity(Intent(this, SearchActivity::class.java))
+        } else {
+            startActivity(Intent(this, NativePlayerActivity::class.java))
+        }
+    }
+
+    private fun updateAutoAudioButton() {
+        autoAudioButton.text = if (prefs().getBoolean("handoff_auto", true)) "Auto: ON" else "Auto: OFF"
+    }
+
+    private fun manualHandoff() {
+        if (NativeHandoff.currentVideoId(this).isEmpty()) {
+            Toast.makeText(this, "Abre un video primero", Toast.LENGTH_SHORT).show()
+            return
+        }
+        NativeHandoff.toNative(this, bgOn) {
+            runOnUiThread {
+                bgOn = false
+                updateBgButton()
+                Toast.makeText(this, "Audio nativo (ahorro de batería)", Toast.LENGTH_SHORT).show()
+                refreshMini()
+            }
+        }
+    }
+
+    /** Vuelve el audio al WebView en la posición actual del nativo. */
+    private fun handoffBack() {
+        val posSec = (PlaybackManager.getCurrentPositionMs() / 1000).coerceAtLeast(0)
+        try {
+            NativePlaybackService.stop(this)
+        } catch (_: Exception) {
+        }
+        try {
+            PlaybackManager.pause()
+        } catch (_: Exception) {
+        }
+        if (::webView.isInitialized) {
+            try {
+                webView.evaluateJavascript(
+                    "(function(){try{var v=document.querySelector('video');" +
+                        "if(v){v.currentTime=$posSec;window.__wasPlaying=true;v.play();}}catch(e){}})();",
+                    null
+                )
+            } catch (_: Exception) {
+            }
+        }
+        if (prefs().getBoolean("handoff_prev_bg", false)) {
+            prefs().edit().putBoolean("handoff_prev_bg", false).apply()
+            startBg()
+        }
+        refreshMini()
+    }
+
+    private fun downloadCurrent() {
+        val vid = NativeHandoff.currentVideoId(this)
+        if (vid.isEmpty()) {
+            Toast.makeText(this, "Abre un video primero", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val track = NativeHandoff.trackFor(vid, (application as TubeApp).lastTitle)
+        AlertDialog.Builder(this)
+            .setTitle("Descargar actual")
+            .setItems(arrayOf("Audio (M4A)", "Video (360p MP4)")) { dlg, which ->
+                if (which == 0) {
+                    DownloadQueueManager.enqueueAudioDownload(this, track)
+                } else {
+                    DownloadQueueManager.enqueueVideoDownload(this, track, "360p")
+                }
+                Toast.makeText(this, "Descarga encolada", Toast.LENGTH_SHORT).show()
+                dlg.dismiss()
+            }
+            .setNegativeButton("Cerrar", null)
+            .show()
+    }
+
+    private fun refreshMini() {
+        runOnUiThread {
+            if (!::miniBar.isInitialized) return@runOnUiThread
+            val show = PlaybackManager.queue.isNotEmpty() &&
+                (NativePlaybackService.running || PlaybackManager.isPlaying)
+            miniBar.visibility = if (show) View.VISIBLE else View.GONE
+            if (!show) return@runOnUiThread
+            val t = PlaybackManager.getCurrentTrack()
+            miniTitle.text = if (t == null) "Nativo" else
+                (t.title + if (PlaybackManager.isLoadingTrack) " …" else "")
+            miniToggle.text = if (PlaybackManager.isPlaying) "⏸" else "▶"
         }
     }
 

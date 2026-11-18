@@ -90,3 +90,33 @@ O sube a GitHub: cada push compila solo (**Actions → Build APK
 
 - Java 17 (Temurin), Gradle 8.9, AGP 8.5.2, Kotlin 1.9.24
 - `compileSdk`/`targetSdk` 34, `minSdk` 24 (Android 7.0+, ARM64)
+
+## Módulo nativo (ExoPlayer)
+
+Además del modo WebView, la app trae un reproductor nativo con
+Media3/ExoPlayer (botones Nativo/Buscar en la segunda fila de controles):
+
+- **Búsqueda nativa** sin WebView: canciones, videos o modo libre.
+- **Traspaso WebView → nativo**: al apagar la pantalla con Fondo ON
+  (o botón Audio), el video actual sigue en audio nativo ahorrando
+  batería; →Web lo devuelve al WebView en la misma posición.
+- **Audio/Video en caliente** sin perder la posición, **calidad**
+  (Auto/1080p/720p/480p/360p), **velocidad** 0.5x–2x, **saltar
+  silencios**, **sleep timer**, **cola + repetición** y **favoritos**.
+- **Ecualizador** de bandas + Bass Boost + presets, y **visualizador
+  FFT** de 36 bandas sin permisos extra.
+- **Descargas**: audio M4A o video 360p MP4 con cola y biblioteca
+  sin red (botón ⬇, búsqueda con pulsación larga, o pantalla DLs).
+- Segundo plano con MediaSession: notificación, lockscreen y
+  Bluetooth. Solo un modo suena a la vez (WebView o nativo).
+
+Dependencias solo del módulo nativo: Media3 1.4.1, Gson, corrutinas.
+Sin FFmpeg a propósito: el audio se guarda en M4A directo (reproducible)
+y el video usa el stream progresivo oficial, así el APK no crece 30-50 MB.
+
+## Licencia y créditos
+
+GPL-3.0-only (ver `LICENSE`). El módulo nativo (extractor Innertube,
+reproductor, ecualizador, visualizador, descargas) está portado de
+[mUzVidX](https://github.com/Spartan117x/mUzVidX) (GPL-3.0), con
+adaptaciones: sin FFmpeg, servicio MediaSession y traspaso híbrido.

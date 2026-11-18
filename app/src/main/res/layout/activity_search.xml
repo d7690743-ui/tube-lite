@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#101010"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <EditText
+        android:id="@+id/search_input"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Canción, artista o video…"
+        android:imeOptions="actionSearch"
+        android:inputType="text"
+        android:singleLine="true"
+        android:textColor="#FFFFFF"
+        android:textColorHint="#888888" />
+
+    <RadioGroup
+        android:id="@+id/mode_group"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <RadioButton
+            android:id="@+id/mode_songs"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:checked="true"
+            android:text="Canciones"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <RadioButton
+            android:id="@+id/mode_videos"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Videos"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+        <RadioButton
+            android:id="@+id/mode_free"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Libre"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp" />
+
+    </RadioGroup>
+
+    <Button
+        android:id="@+id/search_go"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Buscar" />
+
+    <TextView
+        android:id="@+id/search_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textColor="#BBBBBB"
+        android:textSize="13sp" />
+
+    <ListView
+        android:id="@+id/search_results"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+</LinearLayout>
